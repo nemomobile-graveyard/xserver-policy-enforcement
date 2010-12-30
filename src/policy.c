@@ -1,33 +1,60 @@
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
 #include "policy.h"
+#include "client.h"
+#include "xvideo.h"
+#include "xrandr.h"
 
 #include <xf86Module.h>
-#include <dix.h>
-#include <dixstruct.h>
-#include <os.h>
 
-static pointer PolicyPlug(pointer module, pointer options, int *emaj,int *emin)
+
+
+
+static pointer
+PolicySetup(pointer  module,
+            pointer  options,
+            int     *emaj,
+            int     *emin)
 {
-    LogMessage(X_INFO, "Policy bingo !\n");
+    Bool success;
+
+
+    success  = ClientInit();
+    success &= AuthorizeInit();
+    success &= XvideoInit();
+    success &= XrandrInit();
+
+
+    if (success)
+        PolicyInfo("Policy extension successfuly initilized");
+    else
+        PolicyError("Failed to initialize policy extension");
 
     return module;
 }
 
-static void PolicyUnplug(pointer *p)
+static void
+PolicyTeardown(pointer p)
 {
     (void)p;
+
+    XrandrExit();
+    XvideoExit();
+    AuthorizeExit();
+    ClientExit();
 }
+
+
+
 
 static XF86ModuleVersionInfo PolicyVersionRec =
 {
     "policy",
     "MeeGo",
-    "policy enforcement point",
-    "",
+    0x58504550,                      /* XPEP */
+    0,
     XORG_VERSION_CURRENT,
     PACKAGE_VERSION_MAJOR, PACKAGE_VERSION_MINOR, PACKAGE_VERSION_PATCHLEVEL,
     ABI_CLASS_EXTENSION,
@@ -39,8 +66,8 @@ static XF86ModuleVersionInfo PolicyVersionRec =
 
 _X_EXPORT XF86ModuleData policyModuleData = {
     &PolicyVersionRec,
-    PolicyPlug,
-    PolicyUnplug
+    PolicySetup,
+    PolicyTeardown
 };
 
 /*

@@ -10,8 +10,10 @@ AM_CPPFLAGS =-I$(top_srcdir)/include
 configdir = /etc/X11/xorg.conf.d
 config_DATA = policy.conf  
 
+AM_CFLAGS += -DDEBUG
+
 lib@MODULE_NAME@_la_LTLIBRARIES = lib@MODULE_NAME@.la
 lib@MODULE_NAME@_la_LDFLAGS = -module -avoid-version
 lib@MODULE_NAME@_ladir = @extdir@
 
-lib@MODULE_NAME@_la_SOURCES = @MODULE_NAME@.c
+lib@MODULE_NAME@_la_SOURCES = policy.c client.c authorize.c xvideo.c xrandr.c
