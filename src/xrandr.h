@@ -2,10 +2,11 @@
 #define POLICY_XRANDR_H
 
 #include <dix.h>
+#include <extnsionst.h>
 
 Bool XrandrInit(void);
 void XrandrExit(void);
-int  XrandrAuthorizeRequest(ClientPtr, pointer);
+int  XrandrAuthorizeRequest(ClientPtr, ExtensionEntry *);
 
 #endif	/* POLICY_XRANDR_H */
 

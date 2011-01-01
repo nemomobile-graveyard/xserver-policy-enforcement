@@ -28,9 +28,8 @@ XrandrExit(void)
 }
 
 int
-XrandrAuthorizeRequest(ClientPtr client, pointer data)
+XrandrAuthorizeRequest(ClientPtr client, ExtensionEntry *ext)
 {
-    ExtensionEntry *ext    = (ExtensionEntry *)data;
     unsigned short  opcode = StandardMinorOpcode(client);
     ClientPolicyPtr policy = ClientGetPolicyRec(client);
 

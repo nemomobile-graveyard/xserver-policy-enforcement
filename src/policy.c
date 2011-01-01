@@ -4,6 +4,8 @@
 
 #include "policy.h"
 #include "client.h"
+#include "authorize.h"
+#include "winprop.h"
 #include "xvideo.h"
 #include "xrandr.h"
 
@@ -23,6 +25,7 @@ PolicySetup(pointer  module,
 
     success  = ClientInit();
     success &= AuthorizeInit();
+    success &= WinpropInit();
     success &= XvideoInit();
     success &= XrandrInit();
 
@@ -42,6 +45,7 @@ PolicyTeardown(pointer p)
 
     XrandrExit();
     XvideoExit();
+    WinpropExit();
     AuthorizeExit();
     ClientExit();
 }

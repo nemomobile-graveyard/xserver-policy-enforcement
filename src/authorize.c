@@ -4,12 +4,12 @@
 
 #include "policy.h"
 #include "authorize.h"
+#include "winprop.h"
 #include "xvideo.h"
 #include "xrandr.h"
 
 #include <misc.h>
 #include <dixstruct.h>
-#include <extnsionst.h>
 #include <xace.h>
 #include <xacestr.h>
 
@@ -24,6 +24,7 @@
 typedef struct {
     const char *name;
     PolicyExtensionHandler handler;
+    void (*fixup)(int);
 } ExtensionHandlerDef;
 
 typedef struct {
@@ -34,32 +35,51 @@ typedef struct {
 typedef struct {
     CARD32                 period;
     OsTimerPtr             timer;
-    ClientAuthorizationRec clients;
-} ClientToleranceRec;
+    ClientAuthorizationRec tolerate;
+    ClientAuthorizationRec defer;
+} ClientTransitionRec;
 
 static PolicyExtensionHandler  ExtensionHandlers[MAXEXTENSIONS];
 static ClientAuthorizationRec  AuthorizedClients[MAXAUTHCLASSES];
-static ClientToleranceRec      Tolerate;
+static ClientTransitionRec     Transition[MAXTRANSITCLASS];
 
 static void SetupExtensionHandlers(CallbackListPtr *, pointer, pointer);
 static void TeardownExtensionHandlers(void);
-static void ScheduleVideoEnforcement(ClientAuthorizationRec *, pid_t *, int);
-static void CancelVideoEnforcement(void);
-static CARD32 ExecVideoEnforcement(OsTimerPtr, CARD32, pointer);
+static void ScheduleEnforcement(AuthorizationClass, ClientAuthorizationRec *,
+                                pid_t *, int);
+static void CancelEnforcement(void);
+static CARD32 ExecuteEnforcement(OsTimerPtr, CARD32, pointer);
 static Bool SetupXace(void);
 static void TeardownXace(void);
 static void PropertyCallback(CallbackListPtr *, pointer, pointer);
 static void ExtDispatchCallback(CallbackListPtr *, pointer, pointer);
+static const char *AuthorizationClassName(AuthorizationClass);
 static void PrintPidList(const char *, pid_t *, int);
+
+static inline Bool PidIsOnTheList(ClientAuthorizationRec *list, pid_t pid)
+{
+    int i;
+
+    for (i = 0;  i < list->npid;  i++) {
+        if (pid == list->pids[i])
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
 
 
 Bool
 AuthorizeInit(void)
 {
+    int i;
+
     if (SetupXace() &&
         AddCallback(&ClientStateCallback, SetupExtensionHandlers, NULL))
     {
-        Tolerate.period = 5000; /* ms */
+        for (i = 0;  i < MAXTRANSITCLASS;  i++)
+            Transition[i].period = 5000; /* ms */
         return TRUE;
     }
         
@@ -69,7 +89,7 @@ AuthorizeInit(void)
 void
 AuthorizeExit(void)
 {
-    CancelVideoEnforcement();
+    CancelEnforcement();
     TeardownExtensionHandlers();
     TeardownXace();
 }
@@ -99,7 +119,7 @@ AuthorizeClients(AuthorizationClass class, pid_t *pids, int npid)
     if (npid == 0) {
         changed = (authorized->npid != 0);
         if (changed) {
-            ScheduleVideoEnforcement(authorized, pids, npid);
+            ScheduleEnforcement(class, authorized, pids, npid);
             memset(authorized->pids, 0, sizeof(authorized->pids));
         }
     }
@@ -108,7 +128,7 @@ AuthorizeClients(AuthorizationClass class, pid_t *pids, int npid)
         changed = (npid != authorized->npid) ||
                   memcmp(pids, authorized->pids, size);
         if (changed) {
-            ScheduleVideoEnforcement(authorized, pids, npid);
+            ScheduleEnforcement(class, authorized, pids, npid);
             memcpy(authorized->pids, pids, size);
         }
     }
@@ -120,14 +140,40 @@ AuthorizeClients(AuthorizationClass class, pid_t *pids, int npid)
     }
 }
 
+AccessMode
+AuthorizeGetAccessMode(AuthorizationClass class, pid_t pid)
+{
+    ClientTransitionRec *transition         =  Transition + class;
+    Bool                 ManageTransitions  =  (class < MAXTRANSITCLASS);
+
+    if (class < 0 || class >= MAXAUTHCLASSES)
+        return AccessUnathorized;
+
+    if (pid == 0)  /* Nobody */
+        return AccessUnathorized;
+
+    if (pid == 1)  /* Everybody */
+        return AccessAuthorized;
+
+    if (ManageTransitions && PidIsOnTheList(&transition->defer, pid))
+            return AccessDeferred;
+    
+    if (PidIsOnTheList(&AuthorizedClients[class], pid))
+        return AccessAuthorized;
+
+    if (ManageTransitions && PidIsOnTheList(&transition->tolerate, pid))
+        return AccessTolerated;
+
+    return AccessUnathorized;
+}
+
+
 static Bool
 SetupXace(void)
 {
     Bool success = TRUE;
 
-    /*
-    XaceRegisterCallback(XACE_RESOURCE_ACCESS, PropertyCallback, NULL);
-    */
+    XaceRegisterCallback(XACE_PROPERTY_ACCESS, PropertyCallback, NULL);
     XaceRegisterCallback(XACE_EXT_DISPATCH, ExtDispatchCallback, NULL);
 
     return success;
@@ -137,9 +183,7 @@ static
 void TeardownXace(void)
 {
     XaceDeleteCallback(XACE_EXT_DISPATCH, ExtDispatchCallback, NULL);
-    /*
-    XaceDeleteCallback(XACE_RESOURCE_ACCESS, PropertyCallback, NULL);
-    */
+    XaceDeleteCallback(XACE_PROPERTY_ACCESS, PropertyCallback, NULL);
 }
 
 
@@ -150,13 +194,13 @@ SetupExtensionHandlers(CallbackListPtr *list,
                        pointer          data)
 {
     static ExtensionHandlerDef defs[] = {
-        { XvName    , XvideoAuthorizeRequest},
-        { RANDR_NAME, XrandrAuthorizeRequest}, 
-        { NULL      , NULL}
+        { XvName    , XvideoAuthorizeRequest, XvideoFixupProcVector},
+        { RANDR_NAME, XrandrAuthorizeRequest, NULL                 }, 
+        { NULL      , NULL                  , NULL                 }
     };
 
-    ExtensionEntry      *ext;
-    ExtensionHandlerDef *def;
+    ExtensionEntry       *ext;
+    ExtensionHandlerDef  *def;
     Bool                 success;
 
 
@@ -173,8 +217,11 @@ SetupExtensionHandlers(CallbackListPtr *list,
                         def->name, ext->index, MAXEXTENSIONS);
             continue;
         }
-        
+
         ExtensionHandlers[ext->index] = def->handler;
+
+        if (def->fixup)
+            def->fixup(EXTENSION_BASE + ext->index);
     }
 
     if (success)
@@ -193,19 +240,37 @@ TeardownExtensionHandlers(void)
 }
 
 static void
-ScheduleVideoEnforcement(ClientAuthorizationRec *OldClients,
-                         pid_t                  *NewClientPids,
-                         int                     NewClientNpid)
+ScheduleEnforcement(AuthorizationClass      class,
+                    ClientAuthorizationRec *OldClients,
+                    pid_t                  *NewClientPids,
+                    int                     NewClientNpid)
 {
+    ClientTransitionRec *transition = Transition + class;
     pid_t pid;
     int i, j, k;
 
-    if (Tolerate.period == 0)
+    if (class < 0)
         return;
 
-    memset(&Tolerate.clients, 0, sizeof(Tolerate.clients));
+    if (class >= MAXTRANSITCLASS) {
+        if (class < MAXAUTHCLASSES) {
+            PolicyDebug("%s authorization change",
+                        AuthorizationClassName(class));
+        }
+        return;
+    }
+
+    if (transition->period == 0)
+        return;
+
+    /*
+     * during the transition period every old client, that is not
+     * among the new ones will be tolerated, ie. given the possibility
+     * to gently fade away
+     */
+    memset(&transition->tolerate, 0, sizeof(transition->tolerate));
     for (i = k = 0;  i < OldClients->npid;  i++) {
-        pid = Tolerate.clients.pids[k++] = OldClients->pids[i];
+        pid = transition->tolerate.pids[k++] = OldClients->pids[i];
 
         for (j = 0;  j < NewClientNpid;  j++) {
             if (pid == NewClientPids[j]) {
@@ -214,40 +279,78 @@ ScheduleVideoEnforcement(ClientAuthorizationRec *OldClients,
             }
         }
     }
-    Tolerate.clients.npid = k;
+    transition->tolerate.npid = k;
 
-    PolicyDebug("Transition period starts");
-    PrintPidList("PIDs of tolerated clients", Tolerate.clients.pids, k);
+    /*
+     * during the transition period every new client, that was not
+     * on the old list, will be deferred, ie. if needed delayed until
+     * no resource conflict remains
+     */
+    memset(&transition->defer, 0, sizeof(transition->defer));
+    for (i = k = 0;   i < NewClientNpid;   i++) {
+        pid = transition->defer.pids[k++] = NewClientPids[i];
 
-    Tolerate.timer = TimerSet(Tolerate.timer, 0, Tolerate.period,
-                              ExecVideoEnforcement, NULL);
+        for (j = 0;  j < OldClients->npid;  j++) {
+            if (pid == OldClients->pids[j]) {
+                k--;
+                break;
+            }
+        }
+    }
+    transition->defer.npid = k;
+
+
+    PolicyDebug("%s transition period starts", AuthorizationClassName(class));
+
+    if ((i = transition->tolerate.npid) > 0)
+        PrintPidList("PIDs of tolerated clients", transition->tolerate.pids,i);
+
+    if ((i = transition->defer.npid) > 0)
+        PrintPidList("PIDs of deferred clients", transition->defer.pids,i);
+
+    transition->timer = TimerSet(transition->timer, 0, transition->period,
+                                 ExecuteEnforcement, (pointer)class);
 }
 
 static void
-CancelVideoEnforcement(void)
+CancelEnforcement(void)
 {
-    memset(&Tolerate.clients.pids, 0, sizeof(Tolerate.clients.pids));
-    Tolerate.clients.npid = 0;
+    ClientTransitionRec *transition;
+    int i;
 
-    TimerCancel(Tolerate.timer);
+
+    for (i = 0, transition = Transition;   i < MAXTRANSITCLASS;   i++) {
+
+        memset(&transition->tolerate.pids, 0,
+               sizeof(transition->tolerate.pids));
+
+        transition->tolerate.npid = 0;
+
+        TimerCancel(transition->timer);
+    }
 }
 
 static CARD32
-ExecVideoEnforcement(OsTimerPtr timer,
-                     CARD32     time,
-                     pointer    data)
+ExecuteEnforcement(OsTimerPtr timer,
+                   CARD32     time,
+                   pointer    data)
 {
-    ClientAuthorizationRec *authorized = AuthorizedClients + AuthorizeXvideo;
+    AuthorizationClass      class      = (AuthorizationClass)data;
+    ClientAuthorizationRec *authorized = AuthorizedClients + class;
+    ClientTransitionRec    *transition = Transition + class;
 
     (void)timer;
     (void)time;
-    (void)data;
 
-    memset(&Tolerate.clients.pids, 0, sizeof(Tolerate.clients.pids));
-    Tolerate.clients.npid = 0;
+    memset(&transition->defer.pids, 0, sizeof(transition->defer.pids));
+    transition->defer.npid = 0;
 
-    PolicyDebug("Transition period ends");
-    PrintPidList("PIDs of tolerated clients", Tolerate.clients.pids,0);
+    memset(&transition->tolerate.pids, 0, sizeof(transition->tolerate.pids));
+    transition->tolerate.npid = 0;
+
+    PolicyDebug("%s transition period ends", AuthorizationClassName(class));
+    PrintPidList("PIDs of tolerated clients", transition->tolerate.pids, 0);
+    PrintPidList("PIDs of deferred clients", transition->defer.pids, 0);
 
     XvideoKillUnathorizedClients(XvVideoMask,
                                  authorized->pids,
@@ -266,7 +369,10 @@ PropertyCallback(CallbackListPtr *list,
     (void)list;
     (void)closure;
 
-    PolicyDebug("property callback");
+    proprec->status = WinpropAuthorizeRequest(proprec->client,
+                                              proprec->pWin,
+                                              *(proprec->ppProp),
+                                              proprec->access_mode);
 }
 
 static void
@@ -287,6 +393,16 @@ ExtDispatchCallback(CallbackListPtr *list,
         (exthlr = ExtensionHandlers[index]) != NULL)
     {
         extrec->status = exthlr(client, ext); /* xxxAuthorizeRequest() */
+    }
+}
+
+static const char *
+AuthorizationClassName(AuthorizationClass class)
+{
+    switch (class) {
+    case AuthorizeXvideo:    return "Xvideo";
+    case AuthorizeXrandr:    return "Xrandr";
+    default:                 return "<unknown>";
     }
 }
 

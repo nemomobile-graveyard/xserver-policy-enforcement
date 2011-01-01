@@ -4,6 +4,7 @@
 #include <sys/types.h>
 
 #include <xorg-server.h>
+#include <extnsionst.h>
 #include <dix.h>
 #include <os.h>
 
@@ -14,7 +15,7 @@
 #define PolicyError(f, a...) LogMessageVerb(X_ERROR,-1,"Policy: "f"\n" , ##a)
 
 
-typedef int (*PolicyExtensionHandler)(ClientPtr, pointer);
+typedef int (*PolicyExtensionHandler)(ClientPtr, ExtensionEntry *);
 
 
 

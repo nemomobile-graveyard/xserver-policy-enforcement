@@ -2,12 +2,15 @@
 #define POLICY_XVIDEO_H
 
 #include <dix.h>
+#include <extnsionst.h>
 
 #include <X11/extensions/Xv.h>
 
+
 Bool XvideoInit(void);
 void XvideoExit(void);
-int  XvideoAuthorizeRequest(ClientPtr, pointer);
+int  XvideoAuthorizeRequest(ClientPtr, ExtensionEntry *);
+void XvideoFixupProcVector(int);
 void XvideoKillUnathorizedClients(unsigned char, pid_t *, int);;
 Bool XvideoClientHoldsResource(ClientPtr);
 

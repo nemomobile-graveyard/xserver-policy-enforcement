@@ -9,7 +9,6 @@
 
 #include <resource.h>
 #include <registry.h>
-#include <extnsionst.h>
 #include <dixstruct.h>
 #include <scrnintstr.h>
 #include <xvdix.h>
@@ -32,8 +31,12 @@ typedef struct {
     } res;
 } ResourceLookupRec;
 
+static int (*ProcDispatchOriginal)(ClientPtr);
+static int (*SProcDispatchOriginal)(ClientPtr);
+
 static Bool KillUnathorizedClient(ClientPtr, pid_t *, int, const char *);
 static void FoundResource(pointer, XID, pointer);
+static int  ProcDispatch(ClientPtr);
 static const char *RequestName(unsigned short);
 static int  RequestPort(unsigned short, pointer);
 
@@ -50,9 +53,8 @@ XvideoExit(void)
 }
 
 int
-XvideoAuthorizeRequest(ClientPtr client, pointer data)
+XvideoAuthorizeRequest(ClientPtr client, ExtensionEntry *ext)
 {
-    ExtensionEntry *ext    = (ExtensionEntry *)data;
     unsigned short  opcode = StandardMinorOpcode(client);
     ClientPolicyPtr policy = ClientGetPolicyRec(client);
     int             port   = RequestPort(opcode, client->requestBuffer);
@@ -70,6 +72,17 @@ XvideoAuthorizeRequest(ClientPtr client, pointer data)
 
 
     return Success;
+}
+
+void
+XvideoFixupProcVector(int index)
+{
+    if ((ProcDispatchOriginal  = ProcVector[index]       ) != NULL &&
+        (SProcDispatchOriginal = SwappedProcVector[index]) != NULL    )
+    {
+        ProcVector[index]        = ProcDispatch;
+        SwappedProcVector[index] = ProcDispatch;
+    }
 }
 
 void
@@ -206,6 +219,23 @@ FoundResource(pointer value, XID rsid, pointer cdata)
                 lookup->res.name ? lookup->res.name : "?");
 
     lookup->hits++;
+}
+
+static int
+ProcDispatch(ClientPtr client)
+{
+    unsigned short opcode = StandardMinorOpcode(client);
+    int            result;
+
+
+
+
+    if (client->swapped)
+        result = SProcDispatchOriginal(client);
+    else
+        result = ProcDispatchOriginal(client);
+
+    return result;
 }
 
 

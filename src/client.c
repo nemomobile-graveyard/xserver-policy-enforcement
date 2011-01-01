@@ -5,6 +5,7 @@
 #include "policy.h"
 #include "client.h"
 
+#include <misc.h>
 #include <privates.h>
 #include <callback.h>
 #include <dixstruct.h>
