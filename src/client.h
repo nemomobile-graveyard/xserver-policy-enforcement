@@ -6,16 +6,21 @@
 #include <dix.h>
 
 
-
 /* Policy client private. */
 typedef struct {
     pid_t       pid;            /* pid of the client */
     const char *exe;            /* arg0 of the command line */
+    Bool        blocked;
+    pointer     reqbuf;
+    int         reqsize;
 } ClientPolicyRec, *ClientPolicyPtr;
 
 Bool ClientInit(void);
 void ClientExit(void);
 ClientPolicyPtr ClientGetPolicyRec(ClientPtr);
+void ClientBlock(ClientPtr, Bool);
+void ClientUnblock(ClientPtr);
+
 
 
 #endif	/* POLICY_CLIENT_H */

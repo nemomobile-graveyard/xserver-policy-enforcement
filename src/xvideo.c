@@ -7,6 +7,7 @@
 #include "xvideo.h"
 #include "client.h"
 
+#include <misc.h>
 #include <resource.h>
 #include <registry.h>
 #include <dixstruct.h>
@@ -17,10 +18,15 @@
 #include <stdio.h>
 
 #ifdef XREGISTRY
-#define RESOURCE_NAME(r)  LookupresourceName(r)
+#define RESOURCE_NAME(r)    LookupResourceName(r)
 #else
-#define RESOURCE_NAME(r)  #r
+#define RESOURCE_NAME(r)    #r
 #endif
+
+#define PORT_HASH_BITS      6
+#define PORT_HASH_DIM       (1 << (PORT_HASH_BITS - 1))
+#define PORT_HASH_MASK      (PORT_HASH_DIM - 1)
+#define PORT_HASH_INDEX(p)  ((p) & PORT_HASH_MASK)
 
 typedef struct {
     ClientPtr client;
@@ -31,12 +37,26 @@ typedef struct {
     } res;
 } ResourceLookupRec;
 
+typedef struct _PortHash {
+    struct _PortHash  *next;
+    unsigned long      port;                 /* port ID */
+    int                nclidx;               /* no of client indeces */
+    int                clidxs[MAXCLIENTS];   /* client indeces */
+} PortHashRec, *PortHashPtr;
+
 static int (*ProcDispatchOriginal)(ClientPtr);
 static int (*SProcDispatchOriginal)(ClientPtr);
+static PortHashPtr PortHash[PORT_HASH_DIM];
+
 
 static Bool KillUnathorizedClient(ClientPtr, pid_t *, int, const char *);
 static void FoundResource(pointer, XID, pointer);
 static int  ProcDispatch(ClientPtr);
+static int  ProcGrabPort(ClientPtr);
+static int  ProcFallback(ClientPtr);
+static void QueueClient(unsigned long, ClientPtr);
+static int  GetQueuedClients(unsigned long, ClientPtr *, int);
+static void ResourceFreed(CallbackListPtr *, pointer, pointer);
 static const char *RequestName(unsigned short);
 static int  RequestPort(unsigned short, pointer);
 
@@ -44,6 +64,9 @@ static int  RequestPort(unsigned short, pointer);
 Bool
 XvideoInit(void)
 {
+    if (!AddCallback(&ResourceStateCallback, ResourceFreed, NULL))
+        return FALSE;
+
     return TRUE;
 }
 
@@ -227,8 +250,42 @@ ProcDispatch(ClientPtr client)
     unsigned short opcode = StandardMinorOpcode(client);
     int            result;
 
+    if (opcode == xv_GrabPort)
+        result = ProcGrabPort(client);
+    else
+        result = ProcFallback(client);
 
 
+    return result;
+}
+
+static int
+ProcGrabPort(ClientPtr client)
+{
+    xvGrabPortReq *req = (xvGrabPortReq *)client->requestBuffer;
+    unsigned long  id  = req->port;
+    XvPortPtr      port;
+    int            rc;
+
+    rc = dixLookupResourceByType((pointer *)&port, id, XvRTPort,
+                                 client, DixReadAccess);
+
+    if (rc != Success)
+        return rc;
+
+    if (port->grab.client && client != port->grab.client) {
+        QueueClient(id, client);
+        ClientBlock(client, TRUE);
+        return Success;
+    }
+
+    return ProcFallback(client);
+}
+
+static int
+ProcFallback(ClientPtr client)
+{
+    int result;
 
     if (client->swapped)
         result = SProcDispatchOriginal(client);
@@ -238,6 +295,138 @@ ProcDispatch(ClientPtr client)
     return result;
 }
 
+static void
+QueueClient(unsigned long port, ClientPtr client)
+{
+    int hidx  = PORT_HASH_INDEX(port);
+    int clidx = client->index;
+    PortHashPtr prev, entry;
+    int i;
+
+    for (prev = (PortHashPtr)&PortHash[hidx];  prev->next; prev = prev->next) {
+        entry = prev->next;
+
+        if (entry->nclidx >= MAXCLIENTS)
+            return; /* overflow: should never happen */
+
+        if (entry->port == port) {
+            for (i = 0;  i < entry->nclidx;  i++) {
+                if (clidx == entry->clidxs[i])
+                    return;     /* it's already queued */
+            }
+            
+            /* append to the end */
+            entry->clidxs[i] = clidx;
+            entry->nclidx++;
+            
+            return;
+        }
+    }
+
+    if ((entry = malloc(sizeof(PortHashRec))) == NULL)
+        return;
+
+    memset(entry, 0, sizeof(PortHashRec));
+    entry->port = port;
+    entry->nclidx = 1;
+    entry->clidxs[0] = clidx; 
+
+    prev->next = entry;
+}
+
+static int
+GetQueuedClients(unsigned long port, ClientPtr *clbuf, int length)
+{
+    int hidx  = PORT_HASH_INDEX(port);
+    PortHashPtr prev, entry;
+    int clidx;
+    int i, j, n;
+
+    for (prev = (PortHashPtr)&PortHash[hidx];  prev->next; prev = prev->next) {
+        entry = prev->next;
+
+        if (port == entry->port) {
+            prev->next = entry->next;
+
+            n = (length > entry->nclidx) ? entry->nclidx : length;
+
+            for (i = j = 0;   i < n;   i++) {
+                clidx = entry->clidxs[i];
+
+                if (clidx < 1 || clidx >= MAXCLIENTS)
+                    continue;
+
+                if ((clbuf[j] = clients[clidx]) != NullClient)
+                    j++;
+            }
+
+            free(entry);
+
+            return j;
+        }
+    }
+
+    return 0;
+}
+
+
+
+static void
+ResourceFreed(CallbackListPtr *list,
+              pointer          closure,
+              pointer          data)
+{
+    ResourceStateInfoRec *rinfo = (ResourceStateInfoRec *)data;
+    DevPrivateKey         key;
+    ScreenPtr             scrn;
+    XvScreenPtr           xvsc;
+    XvAdaptorPtr          adapt;
+    XvPortPtr             port;
+    XvGrabPtr             grab;
+    ClientPtr             cls[MAXCLIENTS];
+    int                   i, j, k, m, n;
+
+    (void)list;
+    (void)closure;
+
+    if (rinfo->state == ResourceStateFreeing) {
+        if (rinfo->type == XvRTGrab) {
+            if ((grab = (XvGrabPtr)rinfo->value) != NULL &&
+                (key  = XvGetScreenKey())        != NULL   )
+            {
+                for (i = 0;  i < screenInfo.numScreens;  i++) {
+                    scrn = screenInfo.screens[i];
+                    xvsc = (XvScreenPtr)dixLookupPrivate(&scrn->devPrivates,
+                                                         key);
+                    
+                    if (xvsc == NULL)
+                        continue;
+
+                    for (j = 0;   j < xvsc->nAdaptors;   j++) {
+                        adapt = xvsc->pAdaptors + j;
+
+                        for (k = 0;   k < adapt->nPorts;   k++) {
+                            port = adapt->pPorts + k;
+
+                            if (grab == &port->grab) {
+                                PolicyDebug("Xv port %lu ungrabbed", port->id);
+                                m = GetQueuedClients(port->id, cls,MAXCLIENTS);
+
+                                for (n = 0; n < m; n++)
+                                    ClientUnblock(cls[n]);
+
+                                return;
+                            }
+                        } /* for port */
+                    } /* for adapt */
+                } /* for scrn */
+
+                PolicyError("Failed to find corresponding port "
+                            "when grab resource freed");
+            } 
+        }
+    }
+}
 
 static const char *
 RequestName(unsigned short opcode)

@@ -10,6 +10,8 @@
 #include <callback.h>
 #include <dixstruct.h>
 
+#include <X11/Xproto.h>
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -55,9 +57,72 @@ ClientGetPolicyRec(ClientPtr client)
 {
     ClientPolicyPtr rec;
 
-    rec = (ClientPolicyPtr)dixLookupPrivate(&client->devPrivates,
-                                            ClientPrivateKey);
+    if (!client)
+        rec = NULL;
+    else {
+        rec = (ClientPolicyPtr)dixLookupPrivate(&client->devPrivates,
+                                                ClientPrivateKey);
+    }
+
     return rec;
+}
+
+void
+ClientBlock(ClientPtr client, Bool replay)
+{
+    xReq            *reqbuf = (xReq *)client->requestBuffer;
+    ClientPolicyPtr  policy = ClientGetPolicyRec(client);
+    pointer          copy;
+    int              size;
+
+    if (policy && !policy->blocked) {
+        if (!replay || !reqbuf) {
+            size = 0;
+            copy = NULL;
+        }
+        else {
+            size = reqbuf->length * 4;
+
+            if ((copy = malloc(size)) != NULL)
+                memcpy(copy, reqbuf, size);
+            else {
+                PolicyError("Failed to allocate %u byte memory for "
+                            "blocking request", size);
+                return;
+            }
+        }
+
+        free(policy->reqbuf);
+
+        PolicyDebug("client %p (pid %u exe '%s') is blocked",
+                    client, policy->pid, policy->exe);
+
+        policy->blocked = TRUE;
+        policy->reqbuf  = copy;
+        policy->reqsize = size;
+
+        IgnoreClient(client);
+    }
+}
+
+void
+ClientUnblock(ClientPtr client)
+{
+    ClientPolicyPtr  policy = ClientGetPolicyRec(client);
+
+    if (policy && policy->blocked) {
+        PolicyDebug("client %p (pid %u exe '%s') is unblocked",
+                    client, policy->pid, policy->exe);
+
+        policy->blocked = FALSE;
+
+        AttendClient(client);
+
+        if (policy->reqbuf && policy->reqsize > 0) {
+            client->sequence--;
+            InsertFakeRequest(client, policy->reqbuf, policy->reqsize);
+        }
+    }
 }
 
 
@@ -159,6 +224,7 @@ static void
 ClientPolicyRecReset(ClientPtr client, ClientPolicyPtr policy)
 {
     free((void *)policy->exe);
+    free(policy->reqbuf);
     memset(policy, 0, sizeof(ClientPolicyRec));
 }
 
