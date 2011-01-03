@@ -3,6 +3,7 @@
 #endif
 
 #include "client.h"
+#include "authorize.h"
 
 #include <misc.h>
 #include <privates.h>
