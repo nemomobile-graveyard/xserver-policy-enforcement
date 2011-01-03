@@ -2,7 +2,6 @@
 #include "config.h"
 #endif
 
-#include "policy.h"
 #include "authorize.h"
 #include "winprop.h"
 #include "xvideo.h"

@@ -12,6 +12,7 @@
 #include <randrstr.h>
 
 #include <X11/extensions/randr.h>
+#include <X11/extensions/randrproto.h>
 
 static const char *RequestName(unsigned short);
 
@@ -33,8 +34,22 @@ XrandrAuthorizeRequest(ClientPtr client, ExtensionEntry *ext)
     unsigned short  opcode = StandardMinorOpcode(client);
     ClientPolicyPtr policy = ClientGetPolicyRec(client);
 
-    PolicyDebug("client %p (pid %u exe '%s') requested RandR %s",
-                client, policy->pid, policy->exe, RequestName(opcode));
+    switch (opcode) {
+
+    case X_RRChangeOutputProperty:
+        {
+            REQUEST(xRRChangeOutputPropertyReq);
+            PolicyDebug("client %p (pid %u exe '%s') requested RandR "
+                        "ChangeOutputProperty '%s'", client, policy->pid,
+                        policy->exe, NameForAtom(stuff->property));
+        }
+        break;
+
+    default:
+        PolicyDebug("client %p (pid %u exe '%s') requested RandR %s",
+                    client, policy->pid, policy->exe, RequestName(opcode));
+        break;
+    }
 
     return Success;
 }

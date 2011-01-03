@@ -5,6 +5,7 @@
 
 #include <dix.h>
 
+#include "policy.h"
 
 /* Policy client private. */
 typedef struct {
@@ -18,6 +19,7 @@ typedef struct {
 Bool ClientInit(void);
 void ClientExit(void);
 ClientPolicyPtr ClientGetPolicyRec(ClientPtr);
+AccessMode ClientAccessMode(ClientPtr, AuthorizationClass);
 void ClientBlock(ClientPtr, Bool);
 void ClientUnblock(ClientPtr);
 

@@ -15,9 +15,27 @@
 #define PolicyError(f, a...) LogMessageVerb(X_ERROR,-1,"Policy: "f"\n" , ##a)
 
 
+typedef enum {
+    /* classes that need transition management + access control*/
+    AuthorizeXvideo = 0,
+
+    MAXTRANSITCLASS,
+
+    /* classes for access control only */
+    AuthorizeXrandr = MAXTRANSITCLASS,
+
+    /* must be the last */
+    MAXAUTHCLASSES
+} AuthorizationClass;
+
+typedef enum {
+    AccessUnathorized = 0,
+    AccessAuthorized,
+    AccessDeferred,
+    AccessTolerated
+} AccessMode;
+
 typedef int (*PolicyExtensionHandler)(ClientPtr, ExtensionEntry *);
-
-
 
 
 #endif	/* POLICY_H */

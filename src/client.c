@@ -2,7 +2,6 @@
 #include "config.h"
 #endif
 
-#include "policy.h"
 #include "client.h"
 
 #include <misc.h>
@@ -65,6 +64,18 @@ ClientGetPolicyRec(ClientPtr client)
     }
 
     return rec;
+}
+
+AccessMode
+ClientAccessMode(ClientPtr client, AuthorizationClass class)
+{
+    ClientPolicyPtr  policy = ClientGetPolicyRec(client);
+    AccessMode       acmode = AccessUnathorized;
+
+    if (policy != NULL)
+        acmode = AuthorizeGetAccessMode(class, policy->pid);
+
+    return acmode;
 }
 
 void

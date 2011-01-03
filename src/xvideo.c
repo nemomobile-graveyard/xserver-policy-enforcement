@@ -14,6 +14,7 @@
 #include <scrnintstr.h>
 #include <xvdix.h>
 
+#include <X11/X.h>
 
 #include <stdio.h>
 
@@ -59,6 +60,7 @@ static int  GetQueuedClients(unsigned long, ClientPtr *, int);
 static void ResourceFreed(CallbackListPtr *, pointer, pointer);
 static const char *RequestName(unsigned short);
 static int  RequestPort(unsigned short, pointer);
+static const char *AccessModeName(AccessMode);
 
 
 Bool
@@ -151,12 +153,14 @@ XvideoKillUnathorizedClients(unsigned char adaptor_type,
                                                       reason);
                             }
 
+#if 0
                             if (port->client && port->client != client) {
                                 KillUnathorizedClient(port->client,
                                                       AuthorizedClients,
                                                       NumberOfClients,
                                                       reason);
                             }
+#endif
                         }
                     }
                 }
@@ -197,15 +201,11 @@ KillUnathorizedClient(ClientPtr   client,
     pid_t           pid;
     int             i;
 
-    if (client == NULL)
+    if (client == NULL || (policy = ClientGetPolicyRec(client)) == NULL)
         return FALSE;
 
-    policy = ClientGetPolicyRec(client);
-    pid    = policy->pid;
-
-    if (!pid)
+    if (!(pid = policy->pid))
         return FALSE;
-
 
     if (AuthorizedClients != NULL) {
         for (i = 0;    i < NumberOfClients;    i++) {
@@ -248,13 +248,54 @@ static int
 ProcDispatch(ClientPtr client)
 {
     unsigned short opcode = StandardMinorOpcode(client);
+    AccessMode     acmode = ClientAccessMode(client, AuthorizeXvideo);
     int            result;
 
-    if (opcode == xv_GrabPort)
-        result = ProcGrabPort(client);
-    else
-        result = ProcFallback(client);
+    PolicyTrace("client %p Xv AccessMode '%s'", client,AccessModeName(acmode));
 
+    switch (acmode) {
+
+    default:
+    case AccessUnathorized:
+        switch (opcode) {
+
+        case xv_QueryExtension:
+        case xv_QueryAdaptors:
+        case xv_QueryEncodings:
+        case xv_SelectVideoNotify:
+        case xv_SelectPortNotify:
+        case xv_QueryBestSize:
+        case xv_GetPortAttribute:
+        case xv_QueryPortAttributes:
+        case xv_ListImageFormats:
+        case xv_QueryImageAttributes:
+            result = ProcFallback(client);
+            break;
+            
+        default:
+            result = BadAccess;
+            break;
+        }
+        break;
+
+    case AccessAuthorized:
+        result = ProcFallback(client);
+        break;
+
+    case AccessDeferred:
+        if (opcode == xv_GrabPort)
+            result = ProcGrabPort(client);
+        else
+            result = ProcFallback(client);
+        break;
+
+    case AccessTolerated:
+        if (opcode == xv_GrabPort)
+            result = BadAccess;
+        else
+            result = ProcFallback(client);
+        break;
+    }
 
     return result;
 }
@@ -522,6 +563,17 @@ RequestPort(unsigned short opcode, pointer buf)
     return port;
 }
 
+static const char *
+AccessModeName(AccessMode acmode)
+{
+    switch (acmode) {
+    case AccessUnathorized:   return "Unathorized";
+    case AccessAuthorized:    return "Authorized";
+    case AccessDeferred:      return "Deferred";
+    case AccessTolerated:     return "Tolerated";
+    default:                  return "<unknown>";
+    }
+}
 
 
 

@@ -1,25 +1,8 @@
 #ifndef POLICY_AUTHORIZE_H
 #define POLICY_AUTHORIZE_H
 
-typedef enum {
-    /* classes that need transition management + access control*/
-    AuthorizeXvideo = 0,
+#include "policy.h"
 
-    MAXTRANSITCLASS,
-
-    /* classes for access control only */
-    AuthorizeXrandr = MAXTRANSITCLASS,
-
-    /* must be the last */
-    MAXAUTHCLASSES
-} AuthorizationClass;
-
-typedef enum {
-    AccessUnathorized = 0,
-    AccessAuthorized,
-    AccessDeferred,
-    AccessTolerated
-} AccessMode;
 
 Bool AuthorizeInit(void);
 void AuthorizeExit(void);
