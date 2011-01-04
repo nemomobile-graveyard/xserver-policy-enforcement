@@ -8,9 +8,12 @@ AC_CONFIG_SRCDIR([Makefile.am])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_AUX_DIR(.)
 
+AC_CONFIG_MACRO_DIR([m4])
+
 # Initialize Automake
 AM_INIT_AUTOMAKE([foreign dist-bzip2])
 AM_MAINTAINER_MODE
+
 
 # Initialize libtool
 AC_DISABLE_STATIC
@@ -50,6 +53,11 @@ AC_SUBST([sdkdir])
 MODULE_NAME=policy
 AC_SUBST([MODULE_NAME])
 
-AC_CONFIG_FILES([Makefile
+# shave
+SHAVE_INIT([build-aux], [enable])
+
+AC_CONFIG_FILES([build-aux/shave
+		 build-aux/shave-libtool
+                 Makefile
                  src/Makefile])
 AC_OUTPUT
