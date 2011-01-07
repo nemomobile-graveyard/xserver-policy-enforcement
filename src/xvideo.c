@@ -6,6 +6,7 @@
 #include "policy.h"
 #include "xvideo.h"
 #include "client.h"
+#include "ipc.h"
 
 #include <misc.h>
 #include <resource.h>
@@ -250,6 +251,8 @@ ProcDispatch(ClientPtr client)
     unsigned short opcode = StandardMinorOpcode(client);
     AccessMode     acmode = ClientAccessMode(client, AuthorizeXvideo);
     int            result;
+
+    IpcUpdate(AUTHORIZE_XVIDEO);
 
     PolicyTrace("client %p Xv AccessMode '%s'", client,AccessModeName(acmode));
 

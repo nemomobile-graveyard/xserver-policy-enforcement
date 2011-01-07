@@ -13,8 +13,9 @@ config_DATA = policy.conf
 AM_CFLAGS += -DDEBUG
 
 lib@MODULE_NAME@_la_LTLIBRARIES = lib@MODULE_NAME@.la
+lib@MODULE_NAME@_la_LIBADD = -lrt
 lib@MODULE_NAME@_la_LDFLAGS = -module -avoid-version
 lib@MODULE_NAME@_ladir = @extdir@
 
 lib@MODULE_NAME@_la_SOURCES = policy.c client.c authorize.c winprop.c \
-                              xvideo.c xrandr.c
+                              xvideo.c xrandr.c ipc.c

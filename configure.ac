@@ -32,6 +32,10 @@ AC_PROG_SED
 # Obtain compiler/linker options from server and required extensions
 PKG_CHECK_MODULES(XORG, xorg-server xproto)
 
+# Obtain compile/linker options to use xlib
+PKG_CHECK_MODULES(XLIB, x11)
+
+
 # Define a configure option for an alternate input module directory
 AC_ARG_WITH(xorg-module-dir,
             AC_HELP_STRING([--with-xorg-module-dir=DIR],
@@ -59,5 +63,6 @@ SHAVE_INIT([build-aux], [enable])
 AC_CONFIG_FILES([build-aux/shave
 		 build-aux/shave-libtool
                  Makefile
-                 src/Makefile])
+                 src/Makefile
+		 client/Makefile])
 AC_OUTPUT

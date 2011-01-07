@@ -81,6 +81,8 @@ VideoClientsChanged(WindowPtr    window,
     char   buf[512];
     char  *p, *e;
 
+    return TRUE; /* disable this */
+
     if (property->propertyName != VideoClientsAtom)
         done = FALSE;
     else {
@@ -103,7 +105,7 @@ VideoClientsChanged(WindowPtr    window,
                 PolicyDebug("Root property '%s' changed: [%s]",
                             VIDEO_CLIENTS, buf);
 
-                AuthorizeClients(AuthorizeXvideo, pids, npid);
+                AuthorizeClients(AuthorizeXvideo, 5000, pids, npid);
             }
         }
     }

@@ -32,7 +32,6 @@ typedef struct {
 } ClientAuthorizationRec;
 
 typedef struct {
-    CARD32                 period;
     OsTimerPtr             timer;
     ClientAuthorizationRec tolerate;
     ClientAuthorizationRec defer;
@@ -44,8 +43,8 @@ static ClientTransitionRec     Transition[MAXTRANSITCLASS];
 
 static void SetupExtensionHandlers(CallbackListPtr *, pointer, pointer);
 static void TeardownExtensionHandlers(void);
-static void ScheduleEnforcement(AuthorizationClass, ClientAuthorizationRec *,
-                                pid_t *, int);
+static void ScheduleEnforcement(AuthorizationClass, unsigned long,
+                                ClientAuthorizationRec *, pid_t *, int);
 static void CancelEnforcement(void);
 static CARD32 ExecuteEnforcement(OsTimerPtr, CARD32, pointer);
 static Bool SetupXace(void);
@@ -72,17 +71,13 @@ static inline Bool PidIsOnTheList(ClientAuthorizationRec *list, pid_t pid)
 Bool
 AuthorizeInit(void)
 {
-    int i;
+    if (!SetupXace())
+        return FALSE;
 
-    if (SetupXace() &&
-        AddCallback(&ClientStateCallback, SetupExtensionHandlers, NULL))
-    {
-        for (i = 0;  i < MAXTRANSITCLASS;  i++)
-            Transition[i].period = 5000; /* ms */
-        return TRUE;
-    }
+    if (!AddCallback(&ClientStateCallback, SetupExtensionHandlers, NULL))
+        return FALSE;
         
-    return FALSE;
+    return TRUE;
 }
 
 void
@@ -94,7 +89,10 @@ AuthorizeExit(void)
 }
 
 void
-AuthorizeClients(AuthorizationClass class, pid_t *pids, int npid)
+AuthorizeClients(AuthorizationClass class,
+                 unsigned long      period,
+                 pid_t             *pids,
+                 int                npid)
 {
     static pid_t zero_pid;
 
@@ -118,7 +116,7 @@ AuthorizeClients(AuthorizationClass class, pid_t *pids, int npid)
     if (npid == 0) {
         changed = (authorized->npid != 0);
         if (changed) {
-            ScheduleEnforcement(class, authorized, pids, npid);
+            ScheduleEnforcement(class, period, authorized, pids, npid);
             memset(authorized->pids, 0, sizeof(authorized->pids));
         }
     }
@@ -127,7 +125,7 @@ AuthorizeClients(AuthorizationClass class, pid_t *pids, int npid)
         changed = (npid != authorized->npid) ||
                   memcmp(pids, authorized->pids, size);
         if (changed) {
-            ScheduleEnforcement(class, authorized, pids, npid);
+            ScheduleEnforcement(class, period, authorized, pids, npid);
             memcpy(authorized->pids, pids, size);
         }
     }
@@ -240,6 +238,7 @@ TeardownExtensionHandlers(void)
 
 static void
 ScheduleEnforcement(AuthorizationClass      class,
+                    unsigned long           period,
                     ClientAuthorizationRec *OldClients,
                     pid_t                  *NewClientPids,
                     int                     NewClientNpid)
@@ -259,47 +258,54 @@ ScheduleEnforcement(AuthorizationClass      class,
         return;
     }
 
-    if (transition->period == 0)
-        return;
-
-    /*
-     * during the transition period every old client, that is not
-     * among the new ones will be tolerated, ie. given the possibility
-     * to gently fade away
-     */
     memset(&transition->tolerate, 0, sizeof(transition->tolerate));
-    for (i = k = 0;  i < OldClients->npid;  i++) {
-        pid = transition->tolerate.pids[k++] = OldClients->pids[i];
+    if (!period)
+        transition->tolerate.npid = 0;
+    else {
+        /*
+         * during the transition period every old client, that is not
+         * among the new ones will be tolerated, ie. given the possibility
+         * to gently fade away
+         */
+        for (i = k = 0;  i < OldClients->npid;  i++) {
+            pid = transition->tolerate.pids[k++] = OldClients->pids[i];
 
-        for (j = 0;  j < NewClientNpid;  j++) {
-            if (pid == NewClientPids[j]) {
-                k--;
-                break;
+            for (j = 0;  j < NewClientNpid;  j++) {
+                if (pid == NewClientPids[j]) {
+                    k--;
+                    break;
+                }
             }
         }
+        transition->tolerate.npid = k;
     }
-    transition->tolerate.npid = k;
 
-    /*
-     * during the transition period every new client, that was not
-     * on the old list, will be deferred, ie. if needed delayed until
-     * no resource conflict remains
-     */
     memset(&transition->defer, 0, sizeof(transition->defer));
-    for (i = k = 0;   i < NewClientNpid;   i++) {
-        pid = transition->defer.pids[k++] = NewClientPids[i];
-
-        for (j = 0;  j < OldClients->npid;  j++) {
-            if (pid == OldClients->pids[j]) {
-                k--;
-                break;
+    if (!period)
+        transition->defer.npid = 0;
+    else {
+        /*
+         * during the transition period every new client, that was not
+         * on the old list, will be deferred, ie. if needed delayed until
+         * no resource conflict remains
+         */
+        for (i = k = 0;   i < NewClientNpid;   i++) {
+            pid = transition->defer.pids[k++] = NewClientPids[i];
+            
+            for (j = 0;  j < OldClients->npid;  j++) {
+                if (pid == OldClients->pids[j]) {
+                    k--;
+                    break;
+                }
             }
         }
+        transition->defer.npid = k;
     }
-    transition->defer.npid = k;
 
-
-    PolicyDebug("%s transition period starts", AuthorizationClassName(class));
+    if (period) {
+        PolicyDebug("%s transition period starts (length %lumsec)",
+                    AuthorizationClassName(class), period);
+    }
 
     if ((i = transition->tolerate.npid) > 0)
         PrintPidList("PIDs of tolerated clients", transition->tolerate.pids,i);
@@ -307,8 +313,10 @@ ScheduleEnforcement(AuthorizationClass      class,
     if ((i = transition->defer.npid) > 0)
         PrintPidList("PIDs of deferred clients", transition->defer.pids,i);
 
-    transition->timer = TimerSet(transition->timer, 0, transition->period,
-                                 ExecuteEnforcement, (pointer)class);
+    if (period) {
+        transition->timer = TimerSet(transition->timer, 0, period,
+                                     ExecuteEnforcement, (pointer)class);
+    }
 }
 
 static void

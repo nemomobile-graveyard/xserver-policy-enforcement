@@ -8,6 +8,7 @@
 #include "winprop.h"
 #include "xvideo.h"
 #include "xrandr.h"
+#include "ipc.h"
 
 #include <xf86Module.h>
 
@@ -28,6 +29,7 @@ PolicySetup(pointer  module,
     success &= WinpropInit();
     success &= XvideoInit();
     success &= XrandrInit();
+    success &= IpcInit();
 
 
     if (success)
@@ -43,6 +45,7 @@ PolicyTeardown(pointer p)
 {
     (void)p;
 
+    IpcExit();
     XrandrExit();
     XvideoExit();
     WinpropExit();

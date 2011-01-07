@@ -1,5 +1,5 @@
 AUTOMAKE_OPTIONS = foreign
-SUBDIRS = src # doc
+SUBDIRS = src client # doc
 
 ACLOCAL_AMFLAGS=-I m4
 

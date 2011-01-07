@@ -3,10 +3,9 @@
 
 #include "policy.h"
 
-
 Bool AuthorizeInit(void);
 void AuthorizeExit(void);
-void AuthorizeClients(AuthorizationClass, pid_t *, int);
+void AuthorizeClients(AuthorizationClass, unsigned long, pid_t *, int);
 AccessMode AuthorizeGetAccessMode(AuthorizationClass, pid_t);
 
 
