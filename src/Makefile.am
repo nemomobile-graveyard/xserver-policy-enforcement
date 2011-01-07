@@ -19,3 +19,11 @@ lib@MODULE_NAME@_ladir = @extdir@
 
 lib@MODULE_NAME@_la_SOURCES = policy.c client.c authorize.c winprop.c \
                               xvideo.c xrandr.c ipc.c
+
+pkgincludedir = $(includedir)/policy
+pkginclude_HEADERS = videoipc.h
+
+MAINTAINERCLEANFILES = Makefile.in
+
+clean-local:
+	rm -f *~

@@ -1,0 +1,11 @@
+prefix=@prefix@
+exec_prefix=${prefix}
+libdir=@libdir@
+includedir=${prefix}/include/policy
+
+Name: videoipc
+Description: Interface between Xserver Policy Enforcement and Policy Decision
+Version: @PACKAGE_VERSION@
+Libs: 
+Cflags: -I${includedir}
+Requires: 

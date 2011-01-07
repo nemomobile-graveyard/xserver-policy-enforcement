@@ -63,6 +63,7 @@ SHAVE_INIT([build-aux], [enable])
 AC_CONFIG_FILES([build-aux/shave
 		 build-aux/shave-libtool
                  Makefile
+		 videoipc.pc
                  src/Makefile
 		 client/Makefile])
 AC_OUTPUT
