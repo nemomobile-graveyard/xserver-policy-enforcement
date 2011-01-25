@@ -16,8 +16,10 @@
 #include <xvdix.h>
 
 #include <X11/X.h>
+#include <X11/Xatom.h>
 
 #include <stdio.h>
+#include <string.h>
 
 #ifdef XREGISTRY
 #define RESOURCE_NAME(r)    LookupResourceName(r)
@@ -40,25 +42,35 @@ typedef struct {
 } ResourceLookupRec;
 
 typedef struct _PortHash {
-    struct _PortHash  *next;
-    unsigned long      port;                 /* port ID */
-    int                nclidx;               /* no of client indeces */
-    int                clidxs[MAXCLIENTS];   /* client indeces */
+    struct _PortHash   *next;
+    unsigned long       port;                 /* port ID */
+    int                 nclidx;               /* no of client indeces */
+    int                 clidxs[MAXCLIENTS];   /* client indeces */
 } PortHashRec, *PortHashPtr;
+
+typedef struct _AttrAccess {
+    struct _AttrAccess *next;
+    ATOM                id;     /* id of the attribute */
+    Bool                fail;   /* fail, if no access allowed */
+    int                 value;  /* value to be returned if no access allowed */
+} AttrAccessRec, *AttrAccessPtr;
 
 static int (*ProcDispatchOriginal)(ClientPtr);
 static int (*SProcDispatchOriginal)(ClientPtr);
-static PortHashPtr PortHash[PORT_HASH_DIM];
-
+static PortHashPtr   PortHash[PORT_HASH_DIM];
+static AttrAccessPtr AttrAccess;
 
 static Bool KillUnathorizedClient(ClientPtr, pid_t *, int, const char *);
 static void FoundResource(pointer, XID, pointer);
 static int  ProcDispatch(ClientPtr);
 static int  ProcGrabPort(ClientPtr);
+static int  ProcGetPortAttribute(ClientPtr, AttrAccessPtr);
 static int  ProcFallback(ClientPtr);
 static void QueueClient(unsigned long, ClientPtr);
 static int  GetQueuedClients(unsigned long, ClientPtr *, int);
 static void ResourceFreed(CallbackListPtr *, pointer, pointer);
+static Bool ParseAttrAccess(char *);
+static AttrAccessPtr RestrictedAttrAccess(ClientPtr);
 static const char *RequestName(unsigned short);
 static int  RequestPort(unsigned short, pointer);
 static const char *AccessModeName(AccessMode);
@@ -76,6 +88,31 @@ XvideoInit(void)
 void
 XvideoExit(void)
 {
+    AttrAccessPtr acc, next;
+
+    for (acc = AttrAccess;  acc != NULL;  acc = next) {
+        next = acc->next;
+        free(acc);
+    }
+
+    AttrAccess = NULL;
+}
+
+
+Bool
+XvideoParseOption(char *name, char *value)
+{
+    Bool  success = TRUE;
+
+    if (!strcmp(name, XVIDEO_RESTRICT_XVATTR_ACCESS)) {
+        success = ParseAttrAccess(value);
+    }
+    else {
+        success = FALSE;
+        PolicyError("unsupported Xvideo option: '%s'", name);
+    }
+
+    return success;
 }
 
 int
@@ -250,6 +287,7 @@ ProcDispatch(ClientPtr client)
 {
     unsigned short opcode = StandardMinorOpcode(client);
     AccessMode     acmode = ClientAccessMode(client, AuthorizeXvideo);
+    AttrAccessPtr  acptr;
     int            result;
 
     IpcUpdate(AUTHORIZE_XVIDEO);
@@ -268,11 +306,17 @@ ProcDispatch(ClientPtr client)
         case xv_SelectVideoNotify:
         case xv_SelectPortNotify:
         case xv_QueryBestSize:
-        case xv_GetPortAttribute:
         case xv_QueryPortAttributes:
         case xv_ListImageFormats:
         case xv_QueryImageAttributes:
             result = ProcFallback(client);
+            break;
+
+        case xv_GetPortAttribute:
+            if ((acptr = RestrictedAttrAccess(client)) == NULL)
+                result = ProcFallback(client);
+            else
+                result = ProcGetPortAttribute(client, acptr);
             break;
             
         default:
@@ -325,6 +369,44 @@ ProcGrabPort(ClientPtr client)
 
     return ProcFallback(client);
 }
+
+static int
+ProcGetPortAttribute(ClientPtr client, AttrAccessPtr acc)
+{
+#if 0
+    xvGetPortAttributeReq *req = (xvGetPortAttributeReq*)client->requestBuffer;
+#endif
+    xvGetPortAttributeReply rep;
+    char n;
+    int result;
+
+    if (acc->fail) {
+        PolicyTrace("Denying Xv port attribute reading. Fail with BadAccess");
+        result = BadAccess;
+    }
+    else {
+        PolicyTrace("Denying Xv port attribute reading. Answering with %d",
+                    acc->value);
+        result = Success;
+
+        memset(&rep, 0, sizeof(rep));
+        rep.type = X_Reply;
+        rep.sequenceNumber = client->sequence;
+        rep.length = 0;
+        rep.value = acc->value;
+
+        if (client->swapped) {
+            swaps(&rep.sequenceNumber, n);
+            swapl(&rep.length, n);
+            swapl(&rep.value, n);
+        }
+
+        WriteToClient(client, sz_xvGrabPortReply, &rep);
+    }
+
+    return result;
+}
+
 
 static int
 ProcFallback(ClientPtr client)
@@ -470,6 +552,127 @@ ResourceFreed(CallbackListPtr *list,
             } 
         }
     }
+}
+
+static Bool
+ParseAttrAccess(char *str)
+{
+    AttrAccessPtr acc, last;
+    char  buf[256];
+    char *attr;
+    char *vstr;
+    char *p, *e, *v;
+    ATOM  id;
+    Bool  fail;
+    int   value;
+
+    if (!str || !str[0]) {
+        PolicyError("option '%s' require value",
+                    XVIDEO_RESTRICT_XVATTR_ACCESS);
+        return FALSE;
+    }
+
+    strncpy(buf, str, sizeof(buf));
+    buf[sizeof(buf)-1] = '\0';
+        
+    for (p = buf;  *p != '\0';  p = e) {
+
+        /* skip leading spaces, if any */
+        while (*p == ' ')
+            p++;
+            
+        /* see what is left: ie. have we an attribute name? */
+       if (*(attr = p) == '\0') {
+            PolicyError("option '%s' missing attribute name",
+                        XVIDEO_RESTRICT_XVATTR_ACCESS);
+            return FALSE;
+        }
+            
+       /* find the end of the attribute definition */
+        if ((e = strchr(p, ',')) == NULL)
+            e = p + strlen(p);  /* this is the last one */
+        else
+            *e++ = '\0';        /* there is more to come */
+            
+        /* see if we had a value definition */
+        if ((vstr = strchr(p, ':')) == NULL) {
+            fail  = TRUE;
+            value = 0;
+        }
+        else {
+            fail = FALSE;
+
+            *vstr++ = '\0';
+
+            if (!vstr[0]) {
+                PolicyError("option '%s' attribute '%s' invalid value ''",
+                            XVIDEO_RESTRICT_XVATTR_ACCESS, attr);
+                return FALSE;
+            }
+
+            value = strtol(vstr, &v, 10);
+
+            if (*v || v == vstr) {
+                PolicyError("option '%s' attribute '%s' invalid value '%s'",
+                            XVIDEO_RESTRICT_XVATTR_ACCESS, attr, vstr);
+                return FALSE;
+            }
+        }
+
+        /* get the id */
+        if ((id = MakeAtom(attr, strlen(attr), TRUE)) == None) {
+            PolicyError("option '%s' attribute '%s' invalid name",
+                        XVIDEO_RESTRICT_XVATTR_ACCESS, attr);
+            return FALSE;
+        }
+
+        /* make a restrict entry */
+        for (last = (AttrAccessPtr)&AttrAccess; last->next; last = last->next){
+            if (id == last->next->id) {
+                PolicyWarning("option '%s' duplicate attribute '%s'",
+                              XVIDEO_RESTRICT_XVATTR_ACCESS, attr);
+                return FALSE;
+            }
+        }
+
+        if ((acc = malloc(sizeof(AttrAccessRec))) == NULL)
+            return FALSE;
+        else {
+            memset(acc, 0, sizeof(AttrAccessRec));
+            acc->id    = id;
+            acc->fail  = fail;
+            acc->value = value;
+
+            last->next = acc;
+
+            if (fail) {
+                PolicyInfo("restrict access to Xv port attribute '%s' "
+                           "(fail if not allowed)", attr);
+            }
+            else {
+                PolicyInfo("restrict access to Xv port attribute '%s' "
+                           "(reply with %d if not allowed)", attr, value);
+            }
+        }
+    }
+
+    return TRUE;
+}
+
+
+static AttrAccessPtr
+RestrictedAttrAccess(ClientPtr client)
+{
+    xvGetPortAttributeReq *req = (xvGetPortAttributeReq*)client->requestBuffer;
+    ATOM                   id  = req->attribute;
+    AttrAccessPtr          acc;
+
+    for (acc = AttrAccess;   acc != NULL;   acc = acc->next) {
+        if (id == acc->id)
+            return acc;
+    }
+
+    return NULL;
 }
 
 static const char *

@@ -11,8 +11,21 @@
 #include "ipc.h"
 
 #include <xf86Module.h>
+#include <xf86Optrec.h>
 
 
+typedef struct {
+    const char        *name;
+    PolicyParserFunc   parser;
+} OptionRec;
+
+
+static Bool ParseOptions(pointer);
+
+static OptionRec   optdefs[] = {
+    { XVIDEO_RESTRICT_XVATTR_ACCESS,   XvideoParseOption },
+    {             NULL             ,         NULL        }
+};
 
 
 static pointer
@@ -30,7 +43,7 @@ PolicySetup(pointer  module,
     success &= XvideoInit();
     success &= XrandrInit();
     success &= IpcInit();
-
+    success &= ParseOptions(options);
 
     if (success)
         PolicyInfo("Policy extension successfuly initilized");
@@ -54,6 +67,42 @@ PolicyTeardown(pointer p)
 }
 
 
+static Bool
+ParseOptions(pointer data)
+{
+    XF86OptionPtr  opt;
+    Bool           success;
+    char          *name;
+    char          *value;
+    OptionRec     *def;
+
+    success = TRUE;
+
+    for (opt = (XF86OptionPtr)data;  opt != NULL;  opt = xf86nextOption(opt)) {
+        name  = xf86optionName(opt);
+        value = xf86optionValue(opt);
+
+        if (!name) {
+            success = FALSE;
+            continue;
+        }
+
+        for (def = optdefs;   def->parser != NULL;    def++) {
+            if (!strcmp(name, def->name))
+                break;
+        }
+
+        if (def->parser)
+            success = def->parser(name, value);
+        else {
+            success = FALSE;
+            PolicyError("unknown option '%s'", name);
+        }
+    }
+
+
+    return success;
+}
 
 
 static XF86ModuleVersionInfo PolicyVersionRec =

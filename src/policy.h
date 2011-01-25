@@ -39,7 +39,8 @@ typedef enum {
     AccessTolerated
 } AccessMode;
 
-typedef int (*PolicyExtensionHandler)(ClientPtr, ExtensionEntry *);
+typedef Bool (*PolicyParserFunc)(char *, char *);
+typedef int  (*PolicyExtensionHandler)(ClientPtr, ExtensionEntry *);
 
 
 #endif	/* POLICY_H */
