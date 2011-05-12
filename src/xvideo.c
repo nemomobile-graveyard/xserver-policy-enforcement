@@ -60,7 +60,7 @@ static int (*SProcDispatchOriginal)(ClientPtr);
 static PortHashPtr   PortHash[PORT_HASH_DIM];
 static AttrAccessPtr AttrAccess;
 
-static Bool KillUnathorizedClient(ClientPtr, pid_t *, int, const char *);
+static Bool KillUnathorizedClient(ClientPtr, pid_t *, int, pid_t, const char *);
 static void FoundResource(pointer, XID, pointer);
 static int  ProcDispatch(ClientPtr);
 static int  ProcGrabPort(ClientPtr);
@@ -151,7 +151,8 @@ XvideoFixupProcVector(int index)
 void
 XvideoKillUnathorizedClients(unsigned char adaptor_type,
                              pid_t        *AuthorizedClients,
-                             int           NumberOfClients)
+                             int           NumberOfClients,
+                             pid_t         IdleClient)
 {
     DevPrivateKey key;
     ScreenPtr     scrn;
@@ -188,6 +189,7 @@ XvideoKillUnathorizedClients(unsigned char adaptor_type,
                                 KillUnathorizedClient(client,
                                                       AuthorizedClients,
                                                       NumberOfClients,
+                                                      IdleClient,
                                                       reason);
                             }
 
@@ -196,6 +198,7 @@ XvideoKillUnathorizedClients(unsigned char adaptor_type,
                                 KillUnathorizedClient(port->client,
                                                       AuthorizedClients,
                                                       NumberOfClients,
+                                                      IdleClient,
                                                       reason);
                             }
 #endif
@@ -233,6 +236,7 @@ static Bool
 KillUnathorizedClient(ClientPtr   client,
                       pid_t      *AuthorizedClients,
                       int         NumberOfClients,
+                      pid_t       IdleClient,
                       const char *reason)
 {
     ClientPolicyPtr policy;
@@ -244,6 +248,12 @@ KillUnathorizedClient(ClientPtr   client,
 
     if (!(pid = policy->pid))
         return FALSE;
+
+    if (pid == IdleClient) {
+        PolicyDebug("allowing client %p (pid %u exe '%s') "
+                    "as unauthorized idle", client, pid, policy->exe);
+        return FALSE;
+    }
 
     if (AuthorizedClients != NULL) {
         for (i = 0;    i < NumberOfClients;    i++) {

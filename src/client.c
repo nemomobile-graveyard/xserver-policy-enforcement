@@ -163,6 +163,7 @@ ClientCallback(CallbackListPtr *list,
         case ClientStateGone:
             PolicyDebug("client %p (pid %u exe '%s') destroyed",
                         client, policy->pid, policy->exe);
+            AuthorizeClearClient(policy->pid);
             ClientPolicyRecReset(client, policy);
             break;
 

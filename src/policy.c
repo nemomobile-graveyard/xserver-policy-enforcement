@@ -23,8 +23,9 @@ typedef struct {
 static Bool ParseOptions(pointer);
 
 static OptionRec   optdefs[] = {
-    { XVIDEO_RESTRICT_XVATTR_ACCESS,   XvideoParseOption },
-    {             NULL             ,         NULL        }
+    { XVIDEO_RESTRICT_XVATTR_ACCESS, XvideoParseOption    },
+    { AUTHORIZE_IDLE_XVATTR_ACCESS , AuthorizeParseOption },
+    {             NULL             ,         NULL         }
 };
 
 

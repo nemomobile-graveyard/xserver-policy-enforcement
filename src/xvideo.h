@@ -13,7 +13,7 @@ void XvideoExit(void);
 Bool XvideoParseOption(char *, char *);
 int  XvideoAuthorizeRequest(ClientPtr, ExtensionEntry *);
 void XvideoFixupProcVector(int);
-void XvideoKillUnathorizedClients(unsigned char, pid_t *, int);;
+void XvideoKillUnathorizedClients(unsigned char, pid_t *, int, pid_t);
 Bool XvideoClientHoldsResource(ClientPtr);
 
 #endif	/* POLICY_XVIDEO_H */
