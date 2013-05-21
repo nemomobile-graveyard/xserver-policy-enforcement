@@ -1,0 +1,55 @@
+From 4f04c405e5a1ccbc9594e4fc8a9ccc6334cacc8c Mon Sep 17 00:00:00 2001
+From: Marko Saukko <marko.saukko@jollamobile.com>
+Date: Wed, 3 Oct 2012 07:47:11 +0000
+Subject: [PATCH 2/2] swaps and swapl take only one argument anymore.
+
+Signed-off-by: Marko Saukko <marko.saukko@jollamobile.com>
+---
+ src/xvideo.c |   16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/src/xvideo.c b/src/xvideo.c
+index 189d24d..3350f2d 100644
+--- a/src/xvideo.c
++++ b/src/xvideo.c
+@@ -21,6 +21,8 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
++#include <xorg/xorgVersion.h>
++
+ #ifdef XREGISTRY
+ #define RESOURCE_NAME(r)    LookupResourceName(r)
+ #else
+@@ -387,7 +389,9 @@ ProcGetPortAttribute(ClientPtr client, AttrAccessPtr acc)
+     xvGetPortAttributeReq *req = (xvGetPortAttributeReq*)client->requestBuffer;
+ #endif
+     xvGetPortAttributeReply rep;
++#if XORG_VERSION_CURRENT < XORG_VERSION_NUMERIC(1,13,0,0,0)
+     char n;
++#endif
+     int result;
+ 
+     if (acc->fail) {
+@@ -406,9 +410,15 @@ ProcGetPortAttribute(ClientPtr client, AttrAccessPtr acc)
+         rep.value = acc->value;
+ 
+         if (client->swapped) {
+-            swaps(&rep.sequenceNumber, n);
+-            swapl(&rep.length, n);
+-            swapl(&rep.value, n);
++#if XORG_VERSION_CURRENT < XORG_VERSION_NUMERIC(1,13,0,0,0)
++            swaps(&rep.sequenceNumber,n);
++            swapl(&rep.length,n);
++            swapl(&rep.value,n);
++#else
++            swaps(&rep.sequenceNumber);
++            swapl(&rep.length);
++            swapl(&rep.value);
++#endif
+         }
+ 
+         WriteToClient(client, sz_xvGrabPortReply, &rep);
+-- 
+1.7.10.3
+

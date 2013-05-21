@@ -1,0 +1,23 @@
+Name: xserver-policy-enforcement
+Summary: Interface between Xserver Policy Enforcement and Policy Decision
+Version: 0.0.2
+Release: 1
+Group: System/Libraries
+License: BSD
+URL: https://meego.gitorious.org/maemo-multimedia/xserver-policy-enforcement
+Sources:
+    - "%{name}-%{version}.tar.gz"
+Description: Interface between Xserver Policy Enforcement and Policy Decision. |
+    Does video routing.
+
+Patches:
+    - noauth-for-root.patch
+    - make-the-verbosity-level-of-trace-messages-higher.patch
+    - 0001-Remove-usage-of-client-states-that-have-been-dropped.patch  
+    - 0002-swaps-and-swapl-take-only-one-argument-anymore.patch
+PkgConfigBR:
+    - x11
+    - xorg-server
+Configure: reconfigure
+AutoSubPackages:
+    - devel

@@ -1,0 +1,29 @@
+From 8d612b9d424b420369924c3bcdd06779d7f7add0 Mon Sep 17 00:00:00 2001
+From: Dmitry Rozhkov <dmitry.rozhkov@jollamobile.com>
+Date: Wed, 5 Sep 2012 16:32:49 +0300
+Subject: [PATCH] Make the verbosity level of trace messages higher
+
+Make the verbosity level of debug and tracing messages higher
+than the default verbosity level of Xorg (which is 3).
+---
+ src/policy.h |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/policy.h b/src/policy.h
+index a473e04..e90d81f 100644
+--- a/src/policy.h
++++ b/src/policy.h
+@@ -9,8 +9,8 @@
+ #include <os.h>
+ 
+ 
+-#define PolicyTrace(f, a...)  LogMessageVerb(X_DEFAULT,3,"Policy: "f"\n" , ##a)
+-#define PolicyDebug(f, a...)  LogMessageVerb(X_DEFAULT,2,"Policy: "f"\n" , ##a)
++#define PolicyTrace(f, a...)  LogMessageVerb(X_DEFAULT,5,"Policy: "f"\n" , ##a)
++#define PolicyDebug(f, a...)  LogMessageVerb(X_DEFAULT,4,"Policy: "f"\n" , ##a)
+ #define PolicyInfo(f, a...)   LogMessageVerb(X_INFO,1,f"\n" , ##a)
+ #define PolicyWarning(f,a...) LogMessageVerb(X_WARNING,-1,"Policy: "f"\n", ##a)
+ #define PolicyError(f, a...)  LogMessageVerb(X_ERROR,-1,"Policy: "f"\n"  , ##a)
+-- 
+1.7.9.5
+

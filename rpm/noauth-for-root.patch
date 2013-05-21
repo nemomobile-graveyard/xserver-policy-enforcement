@@ -1,0 +1,23 @@
+diff --git a/Makefile.am b/Makefile.am
+index 8ca9b52..260bb8d 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -6,6 +6,9 @@ ACLOCAL_AMFLAGS=-I m4
+ MAINTAINERCLEANFILES = ChangeLog INSTALL
+ DISTCLEANFILES = videoipc.pc 
+ 
++configdir = /etc/xdg/autostart
++config_DATA = xserver-policy-enforcement.desktop
++
+ pkgconfigdir = $(libdir)/pkgconfig
+ pkgconfig_DATA = videoipc.pc
+ 
+diff --git a/xserver-policy-enforcement.desktop b/xserver-policy-enforcement.desktop
+new file mode 100644
+index 0000000..70cb666
+--- /dev/null
++++ b/xserver-policy-enforcement.desktop
+@@ -0,0 +1,3 @@
++[Desktop Entry]
++Exec=/usr/bin/xhost +si:localuser:root
++X-Moblin-Priority=Highest

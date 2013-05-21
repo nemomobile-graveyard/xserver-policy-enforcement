@@ -1,0 +1,10 @@
+* Wed Oct 03 2012 Marko Saukko <marko.saukko@jollamobile.com> - 0.0.2
+- Apply following patches for newer xorg compatibility.
+ - 0001-Remove-usage-of-client-states-that-have-been-dropped.patch
+ - 0002-swaps-and-swapl-take-only-one-argument-anymore.patch
+
+* Wed Sep 05 2012 Dmitry Rozhkov <dmitry.rozhkov@jollamobile.com> - 0.0.2
+- Patch: make-the-verbosity-level-of-trace-messages-higher.patch
+
+* Sun Aug 29 2012 Dmitry Rozhkov <dmitry.rozhkov@jollamobile.com> -0.0.2
+- Initial packaging.
